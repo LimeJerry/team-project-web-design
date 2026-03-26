@@ -485,7 +485,7 @@ unset($boardRow);
   <div class="summary-hero">
     <div class="summary-eyebrow">Mission Overview</div>
     <div class="summary-time"><?= htmlspecialchars($boardStartedAt) ?></div>
-    <div class="summary-copy">가장 최근에 수신된 감지 시각을 기준으로 보드를 구성했습니다.</div>
+    <div class="summary-copy">가장 최근에 수신된 감지 시각을 기준으로 보드를 구성</div>
   </div>
 
   <div class="summary-chip">
@@ -517,7 +517,7 @@ unset($boardRow);
   <div class="board-head">
     <div>
       <h2 class="section-title">실시간 감지 보드</h2>
-      <p class="section-subtitle">층 정보와 기록 순서를 함께 표시하도록 파일명 규칙을 반영했습니다.</p>
+      <p class="section-subtitle">층 정보와 기록 순서를 함께 표시하도록 파일명 규칙을 반영</p>
     </div>
     <div class="board-toolbar">
       <form class="sort-form" method="get">
@@ -537,7 +537,7 @@ unset($boardRow);
   <?php if ($entryCount === 0): ?>
     <div class="empty-state">
       <h3>표시할 감지 데이터가 없습니다.</h3>
-      <p>`dashboard/images` 폴더에 `1F_YYYYMMDD_HHMMSS_YOLO.jpg`, `1F_YYYYMMDD_HHMMSS_SLAM.jpg` 형식의 이미지가 생기면 자동으로 이 보드에 반영됩니다.</p>
+      <p>`dashboard/images` 폴더에 `1F_YYYYMMDD_HHMMSS_YOLO.jpg`, `1F_YYYYMMDD_HHMMSS_SLAM.jpg` 형식의 이미지가 생기면 자동으로 이 보드에 반영</p>
     </div>
   <?php else: ?>
     <div class="board-list">
@@ -545,7 +545,7 @@ unset($boardRow);
         <section class="board-row">
           <aside class="robot-panel">
             <div class="robot-seq">Record <?= $boardRow['sequence'] ?></div>
-            <div class="robot-name"><?= htmlspecialchars($boardRow['floor']) ?> 순찰 로봇</div>
+            <div class="robot-name"><?= htmlspecialchars($boardRow['floor']) ?> 5분대기로봇</div>
 
             <div class="robot-stats">
               <div class="robot-stat">

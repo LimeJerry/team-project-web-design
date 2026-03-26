@@ -19,7 +19,7 @@ $current = basename($_SERVER['PHP_SELF']);
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>순찰 로봇 관리자 대시보드</title>
+<title>5분대기로봇 관리자 대시보드</title>
 
 <style>
 @font-face {
@@ -205,7 +205,7 @@ a {
 <div class="app-shell">
   <div class="header">
     <div class="brand">
-      <h1 class="brand-title">순찰 로봇 관리자 대시보드</h1>
+      <h1 class="brand-title">5분대기로봇 관리자 대시보드</h1>
     </div>
     <a href="?logout=1" class="logout">로그아웃</a>
   </div>
