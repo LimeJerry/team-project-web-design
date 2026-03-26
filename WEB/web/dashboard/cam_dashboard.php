@@ -1,44 +1,29 @@
 <?php include 'header.php'; ?>
 
 <?php
-$imageDir = __DIR__ . DIRECTORY_SEPARATOR . 'images';
-$files = glob($imageDir . DIRECTORY_SEPARATOR . '*.{jpg,jpeg,png,JPG,JPEG,PNG}', GLOB_BRACE);
-$files = $files ?: [];
-rsort($files);
+require_once __DIR__ . '/image_loader.php';
 
-$groups = [];
+$imageDir = getConfiguredImageDirectory();
+$files = getDetectionImageFiles();
+$groups = parseDetectionGroups($files);
+$sort = $_GET['sort'] ?? 'latest';
+$order = $_GET['order'] ?? 'desc';
 
-foreach ($files as $file) {
-  $filename = basename($file);
-
-  if (preg_match('/([A-Z0-9]+F)_(\d{8}_\d{6})_(YOLO|SLAM)\.(jpg|jpeg|png)$/i', $filename, $matches)) {
-    $floor = strtoupper($matches[1]);
-    $timestamp = $matches[2];
-    $type = strtoupper($matches[3]);
-    $groupKey = $floor . '_' . $timestamp;
-
-    if (!isset($groups[$groupKey])) {
-      $groups[$groupKey] = [
-        'floor' => $floor,
-        'timestamp' => $timestamp,
-      ];
-    }
-
-    $groups[$groupKey][$type] = $filename;
-  }
+if (!in_array($sort, ['latest', 'floor'], true)) {
+  $sort = 'latest';
 }
 
-krsort($groups);
+if (!in_array($order, ['asc', 'desc'], true)) {
+  $order = 'desc';
+}
 
 $entries = [];
-$index = 0;
 
 foreach ($groups as $groupKey => $images) {
   $timestamp = $images['timestamp'];
   $floor = $images['floor'];
   $dt = DateTime::createFromFormat('Ymd_His', $timestamp);
   $entries[] = [
-    'sequence' => ++$index,
     'group_key' => $groupKey,
     'floor' => $floor,
     'timestamp' => $timestamp,
@@ -48,21 +33,79 @@ foreach ($groups as $groupKey => $images) {
     'location' => $floor . ' 순찰 구역',
     'status' => '순찰 중',
     'battery' => '정보 수신 대기',
-    'yolo' => isset($images['YOLO']) ? ('images/' . rawurlencode($images['YOLO'])) : null,
-    'slam' => isset($images['SLAM']) ? ('images/' . rawurlencode($images['SLAM'])) : null,
+    'yolo' => isset($images['YOLO']) ? buildDetectionImageUrl($images['YOLO']) : null,
+    'slam' => isset($images['SLAM']) ? buildDetectionImageUrl($images['SLAM']) : null,
   ];
 }
 
 $entryCount = count($entries);
-$latestEntry = $entries[0] ?? null;
-$boardStartedAt = $latestEntry ? $latestEntry['datetime'] : '감지 데이터 없음';
-$dataSignatureParts = [];
+$chronologicalEntries = $entries;
+$latestEntry = $chronologicalEntries[0] ?? null;
+$firstEntry = $entryCount > 0 ? $chronologicalEntries[$entryCount - 1] : null;
+$boardStartedAt = $firstEntry ? $firstEntry['datetime'] : '감지 데이터 없음';
+$dataSignature = buildDetectionImageSignature($files);
 
-foreach ($files as $file) {
-  $dataSignatureParts[] = basename($file) . ':' . @filemtime($file);
+$floorBoards = [];
+
+foreach ($chronologicalEntries as $entry) {
+  $floor = $entry['floor'];
+
+  if (!isset($floorBoards[$floor])) {
+    $floorBoards[$floor] = [
+      'floor' => $floor,
+      'location' => $entry['location'],
+      'status' => $entry['status'],
+      'battery' => $entry['battery'],
+      'latest_timestamp' => $entry['timestamp'],
+      'latest_datetime' => $entry['datetime'],
+      'captures' => [],
+    ];
+  }
+
+  $floorBoards[$floor]['captures'][] = $entry;
 }
 
-$dataSignature = md5(implode('|', $dataSignatureParts));
+foreach ($floorBoards as &$floorBoard) {
+  usort($floorBoard['captures'], function (array $left, array $right): int {
+    $comparison = strcmp($right['timestamp'], $left['timestamp']);
+
+    if ($comparison !== 0) {
+      return $comparison;
+    }
+
+    return strcmp($right['group_key'], $left['group_key']);
+  });
+}
+unset($floorBoard);
+
+$boardRows = array_values($floorBoards);
+
+usort($boardRows, function (array $left, array $right) use ($sort, $order): int {
+  if ($sort === 'floor') {
+    preg_match('/\d+/', $left['floor'], $leftFloorMatch);
+    preg_match('/\d+/', $right['floor'], $rightFloorMatch);
+    $leftFloor = isset($leftFloorMatch[0]) ? (int)$leftFloorMatch[0] : 0;
+    $rightFloor = isset($rightFloorMatch[0]) ? (int)$rightFloorMatch[0] : 0;
+    $comparison = $leftFloor <=> $rightFloor;
+  } else {
+    $comparison = strcmp($left['latest_timestamp'], $right['latest_timestamp']);
+
+    if ($comparison === 0) {
+      preg_match('/\d+/', $left['floor'], $leftFloorMatch);
+      preg_match('/\d+/', $right['floor'], $rightFloorMatch);
+      $leftFloor = isset($leftFloorMatch[0]) ? (int)$leftFloorMatch[0] : 0;
+      $rightFloor = isset($rightFloorMatch[0]) ? (int)$rightFloorMatch[0] : 0;
+      $comparison = $leftFloor <=> $rightFloor;
+    }
+  }
+
+  return $order === 'asc' ? $comparison : -$comparison;
+});
+
+foreach ($boardRows as $index => &$boardRow) {
+  $boardRow['sequence'] = $index + 1;
+}
+unset($boardRow);
 ?>
 
 <style>
@@ -144,6 +187,30 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
   font-size: 14px;
 }
 
+.board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sort-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sort-select {
+  min-width: 150px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(131, 176, 191, 0.75);
+  background: #ffffff;
+  color: var(--surface-strong-2);
+  font-weight: 800;
+}
+
 .board-list {
   display: flex;
   flex-direction: column;
@@ -152,7 +219,7 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
 
 .board-row {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 200px minmax(0, 1fr);
   border: 1px solid rgba(131, 176, 191, 0.6);
   border-radius: 22px;
   overflow: hidden;
@@ -160,17 +227,17 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
 }
 
 .robot-panel {
-  padding: 22px 20px;
+  padding: 18px 16px;
   background: linear-gradient(180deg, #155a73, #0d4960);
   color: #f5fbff;
   border-right: 1px solid rgba(255, 255, 255, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 .robot-name {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -190,12 +257,12 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
 
 .robot-stats {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .robot-stat {
-  padding: 12px 14px;
-  border-radius: 16px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -208,48 +275,67 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
 }
 
 .robot-stat-value {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 800;
+  line-height: 1.3;
 }
 
 .capture-panel {
-  padding: 18px;
+  padding: 12px;
   background: linear-gradient(180deg, rgba(233, 242, 247, 0.56), rgba(255, 255, 255, 0.92));
 }
 
-.capture-header {
+.capture-rail {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(360px, calc((100% - 36px) / 4));
   gap: 12px;
-  margin-bottom: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
 }
 
-.capture-timestamp {
-  padding: 12px 16px;
+.capture-rail::-webkit-scrollbar {
+  height: 10px;
+}
+
+.capture-rail::-webkit-scrollbar-thumb {
+  background: rgba(20, 89, 116, 0.28);
+  border-radius: 999px;
+}
+
+.capture-pair {
+  background: #f8fcfe;
+  border: 2px solid rgba(12, 62, 79, 0.75);
+  border-radius: 22px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.capture-pair-header {
+  padding: 12px 14px;
   border-radius: 16px;
   background: #dcecf3;
   border: 1px solid rgba(131, 176, 191, 0.75);
   color: var(--surface-strong-2);
-  text-align: center;
+  font-size: 14px;
   font-weight: 800;
+  text-align: center;
 }
 
-.capture-grid {
+.capture-pair-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
 }
 
 .capture-card {
-  background: #f8fcfe;
-  border: 2px solid rgba(12, 62, 79, 0.75);
-  border-radius: 22px;
-  padding: 12px;
-  min-height: 260px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  gap: 8px;
 }
 
 .capture-label {
@@ -264,12 +350,12 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
 
 .capture-frame {
   position: relative;
-  flex: 1;
   border-radius: 16px;
   overflow: hidden;
   background: linear-gradient(135deg, #d9eaf1, #edf6fa);
   border: 1px solid rgba(131, 176, 191, 0.75);
-  min-height: 180px;
+  aspect-ratio: 4 / 3;
+  min-width: 0;
 }
 
 .capture-frame img {
@@ -368,9 +454,21 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
     grid-template-columns: 1fr;
   }
 
-  .capture-header,
-  .capture-grid {
+  .board-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .capture-rail {
+    grid-auto-columns: minmax(280px, 82vw);
+  }
+
+  .capture-pair-grid {
     grid-template-columns: 1fr;
+  }
+
+  .capture-frame {
+    aspect-ratio: 4 / 3;
   }
 
   .board-shell {
@@ -421,7 +519,19 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
       <h2 class="section-title">실시간 감지 보드</h2>
       <p class="section-subtitle">층 정보와 기록 순서를 함께 표시하도록 파일명 규칙을 반영했습니다.</p>
     </div>
-    <div class="board-meta">정렬 기준: 최신 기록 우선</div>
+    <div class="board-toolbar">
+      <form class="sort-form" method="get">
+        <select class="sort-select" name="sort" onchange="this.form.submit()">
+          <option value="latest" <?= $sort === 'latest' ? 'selected' : '' ?>>최신 업데이트 순</option>
+          <option value="floor" <?= $sort === 'floor' ? 'selected' : '' ?>>층별 정렬</option>
+        </select>
+        <select class="sort-select" name="order" onchange="this.form.submit()">
+          <option value="desc" <?= $order === 'desc' ? 'selected' : '' ?>>내림차순</option>
+          <option value="asc" <?= $order === 'asc' ? 'selected' : '' ?>>오름차순</option>
+        </select>
+      </form>
+      <div class="board-meta">이미지 폴더: <?= htmlspecialchars($imageDir) ?></div>
+    </div>
   </div>
 
   <?php if ($entryCount === 0): ?>
@@ -431,68 +541,71 @@ $dataSignature = md5(implode('|', $dataSignatureParts));
     </div>
   <?php else: ?>
     <div class="board-list">
-      <?php foreach ($entries as $entry): ?>
+      <?php foreach ($boardRows as $boardRow): ?>
         <section class="board-row">
           <aside class="robot-panel">
-            <div class="robot-seq">Record <?= $entry['sequence'] ?></div>
-            <div class="robot-name"><?= htmlspecialchars($entry['floor']) ?> 순찰 로봇</div>
+            <div class="robot-seq">Record <?= $boardRow['sequence'] ?></div>
+            <div class="robot-name"><?= htmlspecialchars($boardRow['floor']) ?> 순찰 로봇</div>
 
             <div class="robot-stats">
               <div class="robot-stat">
-                <span class="robot-stat-label">층 / 순서쌍</span>
-                <div class="robot-stat-value"><?= htmlspecialchars($entry['floor']) ?> / <?= $entry['sequence'] ?>번 기록</div>
+                <span class="robot-stat-label">층 / 감지 쌍 수</span>
+                <div class="robot-stat-value"><?= htmlspecialchars($boardRow['floor']) ?> / <?= count($boardRow['captures']) ?>쌍</div>
               </div>
 
               <div class="robot-stat">
-                <span class="robot-stat-label">감지 시각</span>
-                <div class="robot-stat-value"><?= htmlspecialchars($entry['datetime']) ?></div>
+                <span class="robot-stat-label">최신 감지 시각</span>
+                <div class="robot-stat-value"><?= htmlspecialchars($boardRow['latest_datetime']) ?></div>
               </div>
 
               <div class="robot-stat">
                 <span class="robot-stat-label">상태</span>
-                <div class="robot-stat-value"><?= htmlspecialchars($entry['status']) ?></div>
+                <div class="robot-stat-value"><?= htmlspecialchars($boardRow['status']) ?></div>
               </div>
 
               <div class="robot-stat">
                 <span class="robot-stat-label">위치</span>
-                <div class="robot-stat-value"><?= htmlspecialchars($entry['location']) ?></div>
+                <div class="robot-stat-value"><?= htmlspecialchars($boardRow['location']) ?></div>
               </div>
 
               <div class="robot-stat">
                 <span class="robot-stat-label">배터리</span>
-                <div class="robot-stat-value"><?= htmlspecialchars($entry['battery']) ?></div>
+                <div class="robot-stat-value"><?= htmlspecialchars($boardRow['battery']) ?></div>
               </div>
             </div>
           </aside>
 
           <div class="capture-panel">
-            <div class="capture-header">
-              <div class="capture-timestamp"><?= htmlspecialchars($entry['floor']) ?> · <?= htmlspecialchars($entry['time_only']) ?> · YOLO 분석</div>
-              <div class="capture-timestamp"><?= htmlspecialchars($entry['floor']) ?> · <?= htmlspecialchars($entry['time_only']) ?> · SLAM 맵</div>
-            </div>
+            <div class="capture-rail">
+              <?php foreach ($boardRow['captures'] as $capture): ?>
+                <article class="capture-pair">
+                  <div class="capture-pair-header"><?= htmlspecialchars($capture['floor']) ?> · <?= htmlspecialchars($capture['time_only']) ?></div>
 
-            <div class="capture-grid">
-              <article class="capture-card">
-                <div class="capture-label">YOLO 이미지</div>
-                <div class="capture-frame">
-                  <?php if ($entry['yolo']): ?>
-                    <img src="<?= htmlspecialchars($entry['yolo']) ?>" alt="YOLO 감지 이미지">
-                  <?php else: ?>
-                    <div class="capture-empty">YOLO 이미지가 아직 없습니다.</div>
-                  <?php endif; ?>
-                </div>
-              </article>
+                  <div class="capture-pair-grid">
+                    <section class="capture-card">
+                      <div class="capture-label">YOLO 이미지</div>
+                      <div class="capture-frame">
+                        <?php if ($capture['yolo']): ?>
+                          <img src="<?= htmlspecialchars($capture['yolo']) ?>" alt="YOLO 감지 이미지">
+                        <?php else: ?>
+                          <div class="capture-empty">YOLO 이미지가 아직 없습니다.</div>
+                        <?php endif; ?>
+                      </div>
+                    </section>
 
-              <article class="capture-card">
-                <div class="capture-label">SLAM 맵</div>
-                <div class="capture-frame">
-                  <?php if ($entry['slam']): ?>
-                    <img src="<?= htmlspecialchars($entry['slam']) ?>" alt="SLAM 맵 이미지">
-                  <?php else: ?>
-                    <div class="capture-empty">SLAM 이미지가 아직 없습니다.</div>
-                  <?php endif; ?>
-                </div>
-              </article>
+                    <section class="capture-card">
+                      <div class="capture-label">SLAM 맵</div>
+                      <div class="capture-frame">
+                        <?php if ($capture['slam']): ?>
+                          <img src="<?= htmlspecialchars($capture['slam']) ?>" alt="SLAM 맵 이미지">
+                        <?php else: ?>
+                          <div class="capture-empty">SLAM 이미지가 아직 없습니다.</div>
+                        <?php endif; ?>
+                      </div>
+                    </section>
+                  </div>
+                </article>
+              <?php endforeach; ?>
             </div>
           </div>
         </section>

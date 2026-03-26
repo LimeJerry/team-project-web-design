@@ -211,8 +211,8 @@ a {
   </div>
 
   <div class="nav">
-    <a href="cam_dashboard.php" class="<?= $current === 'cam_dashboard.php' ? 'active' : '' ?>">실시간 모니터링</a>
-    <a href="inform_dashboard.php" class="<?= $current === 'inform_dashboard.php' ? 'active' : '' ?>">감지 정보 및 로그</a>
+    <a href="cam_dashboard.php" class="<?= $current === 'cam_dashboard.php' ? 'active' : '' ?>">층별 모니터링</a>
+    <a href="inform_dashboard.php" class="<?= $current === 'inform_dashboard.php' ? 'active' : '' ?>">통합 모니터링</a>
   </div>
 
   <div class="page-body">
